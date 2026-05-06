@@ -1,10 +1,4 @@
-# HTTPS Development Repository
-<img width="446" height="408" alt="image" src="https://github.com/user-attachments/assets/141f1c5b-37d5-401d-9260-aef4a5d3e0ac" />
-
-생성 PW: wiznet_w55rp20
-
-<img width="841" height="423" alt="image" src="https://github.com/user-attachments/assets/d0c17db3-1d8d-4aee-b7e7-0e5264d43f57" />
-
+# W55RP20 HTTPS Server with Authentication
 
 ## Warning
 
@@ -12,72 +6,143 @@ This project is currently under development.
 
 Normal operation is not guaranteed, and some functions may be unstable or incomplete.
 
+---
+
 ## Overview
 
-This repository is dedicated only to HTTPS feature development and verification.
+This repository implements an embedded **HTTPS server with login authentication** on the W55RP20 (RP2040 + W5500).
 
-It does not describe other product plans, non-HTTPS features, or external project requirements.
+- HTTPS server on port `443` (TLS 1.2, mbedTLS)
+- Login system with SHA-256 hashed password storage in Flash
+- Session cookie-based authentication (30-minute timeout)
+- Up to 5 user accounts
+- SNMP v1 Agent on UDP port `161`
 
-The current firmware is intended to operate as an embedded HTTPS server on the target device.
+---
+
+## Authentication Flow
+
+```
+First Access (no accounts)
+  → /setup  : Enter creation password → Create account
+
+Account exists
+  → /login  : ID / Password login → Session cookie issued
+  → /       : Main page (authenticated)
+  → /account: Add / Delete accounts
+  → /logout : Invalidate session
+```
+
+### Account Creation Password
+
+> `wiznet_w55rp20`
+
+This password is required to create new user accounts. It is stored as a SHA-256 hash in the firmware and cannot be changed via the web interface.
+
+---
 
 ## How It Works
 
-The system works as follows:
+1. Device boots and initializes the network stack
+2. DHCP assigns an IP address
+3. HTTPS server opens port `443`, SNMP Agent opens UDP `161`
+4. Browser connects over HTTPS → TLS handshake
+5. Login page is served — authentication required before accessing main page
+6. Session token issued as a secure cookie after successful login
 
-1. The device boots and initializes the network stack.
-2. The device gets an IP address from DHCP.
-3. The HTTPS server opens port `443`.
-4. A client connects to the device over HTTPS.
-5. The device performs a TLS handshake.
-6. After the handshake succeeds, the device returns an HTTP response over TLS.
-7. The browser receives the HTML page from the embedded server.
+---
 
-At the moment, the HTTPS page is served directly by the firmware and is intended for HTTPS validation and page delivery testing.
+## Security
 
-## Certificate Notes
+| Layer | Method |
+|---|---|
+| Transport | TLS 1.2 (`TLS-RSA-WITH-AES-256-GCM-SHA384`) |
+| Session | Random 16-byte token, HttpOnly + Secure cookie |
+| Password storage | SHA-256 hash in Flash (plaintext never stored) |
+| Account creation | Separate creation password required |
 
-This project uses a development certificate for HTTPS testing.
+### TLS Session Caching
 
-- A browser security warning may appear when you access the device.
-- For development and internal testing, that warning can be ignored.
-- If the warning is inconvenient, a certificate update or certificate patch flow can be applied later.
-- That later update flow is the recommended way to reduce browser warnings during internal use.
+mbedTLS session caching is enabled to reduce reconnection handshake time.
 
-This repository is focused on HTTPS functionality itself, not on final public certificate deployment.
+- First connection: full TLS handshake (~2–4 seconds, RSA bottleneck on RP2040)
+- Reconnection: session resumed (tens of milliseconds)
+
+### Planned Improvement
+
+- Replace RSA-2048 certificate with **ECDSA P-256**
+- Expected handshake reduction: ~2.25s → ~100–200ms per connection
+- Security level improves: 112 bit → 128 bit
+
+---
 
 ## System Architecture
 
-The current HTTPS flow is organized like this:
+```
+Browser
+  └── HTTPS (TCP 443) ──▶ TLS handshake (mbedTLS)
+                               └── Auth check (httpsAuth)
+                                       └── Main page / Login / Account mgmt
 
-- Network interface: W5500 Ethernet controller
-- MCU / application firmware: device main application
-- TLS layer: `mbedTLS`
-- HTTPS server task: firmware task that listens on port `443`
-- Socket handling: multiple HTTPS sockets are used to tolerate browser-side parallel connections
-- Page delivery: static HTML content is returned by the embedded firmware
+SNMP Manager
+  └── UDP 161 ──▶ SNMP Agent (ioLibrary)
+                      └── System MIB response
+```
 
-High-level path:
+**Key source files:**
 
-`Browser -> TCP 443 -> TLS handshake -> HTTPS server task -> HTML response`
+| File | Role |
+|---|---|
+| `port/app/platform_handler/src/httpHandler.c` | HTTPS server task, URL routing |
+| `port/app/platform_handler/src/httpsAuth.c` | Account / session management |
+| `port/app/mbedtls/src/SSLInterface.c` | TLS context, session cache |
+| `port/app/platform_handler/src/snmpHandler.c` | SNMP Agent task |
+| `libraries/ioLibrary_Driver/Internet/SNMP/snmp_custom.c` | SNMP OID table |
 
-Main implementation areas in this repository:
+---
 
-- `port/app/platform_handler/src/httpHandler.c`
-- `port/app/mbedtls/src/SSLInterface.c`
-- `port/app/html_file/Web_page.h`
+## Socket Allocation (W5500)
+
+| Socket | Purpose |
+|---|---|
+| 0 | Data |
+| 1 | Config UDP |
+| 2 | Config TCP |
+| 3 | DHCP / DNS |
+| 4 | HTTPS server 1 |
+| 5 | HTTPS server 2 |
+| 6 | HTTPS server 3 |
+| 7 | SNMP Agent UDP 161 |
+
+---
+
+## ioLibrary Patch
+
+SNMP-related fixes to the upstream ioLibrary are maintained as a patch file.
+
+```bash
+cd libraries/ioLibrary_Driver
+git checkout b981401
+git apply ../../ioLibrary_snmp_patch.patch
+```
+
+See [ioLibrary_snmp_patch_HOW_TO_APPLY.md](ioLibrary_snmp_patch_HOW_TO_APPLY.md) for details.
+
+---
+
+## Certificate Notes
+
+This project uses a self-signed development certificate.
+
+- A browser security warning will appear on first access — this is expected
+- For internal testing, the warning can be safely ignored
+- Future plan: replace with ECDSA P-256 self-signed certificate
+
+---
 
 ## Future Plans
 
-The current direction for this repository is:
-
-- improve HTTPS stability
-- improve certificate handling and update flow
-- reduce browser warning friction for internal users
-- refine session handling and response delivery
-- continue HTTPS-focused validation and debugging
-
-## Scope
-
-This README intentionally documents only the HTTPS-related part of the project.
-
-Other system plans, non-HTTPS features, and external requirements are out of scope for this repository documentation.
+- [ ] ECDSA P-256 certificate to replace RSA-2048 (handshake speed + security)
+- [ ] HTTPS page to display real-time sensor data (UART input)
+- [ ] SNMP OID extension for sensor channels
+- [ ] SNMP Trap support (Phase 2)
