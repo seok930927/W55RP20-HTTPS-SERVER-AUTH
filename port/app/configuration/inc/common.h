@@ -35,8 +35,7 @@
 #define SOCK_HTTPSERVER_1       4
 #define SOCK_HTTPSERVER_2       5
 #define SOCK_HTTPSERVER_3       6
-#define SOCK_SNMP_AGENT         7
-
+#define SOCK_UTILITY            7
 #define SEG_DATA0_SOCK          SOCK_DATA
 #define SEGCP_UDP_SOCK          SOCK_CONFIG_UDP
 #define SEGCP_TCP_SOCK          SOCK_CONFIG_TCP

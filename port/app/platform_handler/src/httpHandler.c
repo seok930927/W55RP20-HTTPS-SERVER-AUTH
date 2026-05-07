@@ -6,11 +6,13 @@
 #include "port_common.h"
 #include "httpHandler.h"
 #include "httpsAuth.h"
-#include "Web_page.h"
 #include "socket.h"
 #include "netHandler.h"
 #include "SSLInterface.h"
 #include "deviceHandler.h"
+#include "gpioHandler.h"
+#include "pingHandler.h"
+#include "arpHandler.h"
 
 #define HTTPS_SERVER_PORT   443
 #define HTTPS_RX_BUF_SIZE   1024
@@ -18,6 +20,15 @@
 #define HTTPS_HDR_BUF_SIZE  512
 
 extern xSemaphoreHandle net_http_webserver_sem;
+
+static uint8_t s_led19 = 1;
+static char    s_ping_ip[32]     = {0};
+static char    s_ping_result[64] = {0};
+static arp_table_t s_arp_table;
+static char    s_arp_rows[2048];
+static char    s_main_body[4096];
+
+static void render_main_page(wiz_tls_context *ctx, const char *session);
 
 static const uint8_t https_server_socks[MAX_HTTPSOCK] = {
     SOCK_HTTPSERVER_1,
@@ -91,6 +102,47 @@ static const char PAGE_ACCOUNT[] =
     "</form>"
     "<p class=e>%s</p>"
     "<hr><a href=/>홈</a> | <a href=/logout>로그아웃</a>"
+    "</body></html>";
+
+static const char PAGE_MAIN[] =
+    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>W55RP20 Demo</title>"
+    "<style>"
+    "body{font-family:sans-serif;max-width:580px;margin:40px auto;padding:0 12px}"
+    "h1{color:#0055aa;margin-bottom:4px}"
+    "nav{text-align:right;margin-bottom:16px}nav a{color:#0055aa}"
+    ".sec{border:1px solid #ccc;border-radius:4px;margin:14px 0;padding:14px}"
+    ".sec h3{margin:0 0 10px;color:#333;border-bottom:1px solid #eee;padding-bottom:6px}"
+    ".led{font-size:1.6em;font-weight:bold;margin:8px 0}"
+    ".btn{padding:9px 26px;border:none;font-size:.95em;cursor:pointer;color:#fff;margin:3px}"
+    ".on{background:#118811}.off{background:#cc2200}.blue{background:#0055aa}"
+    "input[type=text]{padding:7px;width:180px;border:1px solid #ccc}"
+    ".res{font-weight:bold;margin-top:8px;min-height:1.2em}"
+    "table{width:100%;border-collapse:collapse;margin-top:8px}"
+    "th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;font-size:.9em}"
+    "th{background:#f0f0f0}"
+    "</style></head><body>"
+    "<h1>W55RP20 Demo</h1>"
+    "<nav><a href=/account>계정관리</a> | <a href=/logout>로그아웃</a></nav>"
+    "<div class=sec><h3>GPIO 19 (LED)</h3>"
+    "<div class=led style='color:%s'>%s</div>"
+    "<form method=post action=/gpio/on style=display:inline>"
+    "<button class='btn on'>ON</button></form> "
+    "<form method=post action=/gpio/off style=display:inline>"
+    "<button class='btn off'>OFF</button></form>"
+    "</div>"
+    "<div class=sec><h3>Ping</h3>"
+    "<form method=post action=/ping>"
+    "<input type=text name=ip value='%s' placeholder='192.168.1.1'> "
+    "<button class='btn blue'>Ping</button>"
+    "</form>"
+    "<div class=res>%s</div>"
+    "</div>"
+    "<div class=sec><h3>ARP Scan (x.x.x.1~254)</h3>"
+    "<form method=post action=/arp/scan>"
+    "<button class='btn blue'>Scan</button>"
+    "</form>"
+    "%s"
+    "</div>"
     "</body></html>";
 
 /*  -----------------------------------------------------------------------
@@ -290,9 +342,7 @@ static void handle_get_root(wiz_tls_context *ctx, const char *session) {
         send_redirect(ctx, "/login");
         return;
     }
-    /* 메인 페이지 */
-    size_t body_len = sizeof(_acWeb_page) - 1;
-    send_html(ctx, (const char *)_acWeb_page, body_len);
+    render_main_page(ctx, session);
 }
 
 static void handle_get_login(wiz_tls_context *ctx, const char *query) {
@@ -466,6 +516,110 @@ static void handle_post_account_del(wiz_tls_context *ctx, const char *session,
     }
 }
 
+static int parse_ip(const char *str, uint8_t *ip) {
+    unsigned a, b, c, d;
+    if (sscanf(str, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) {
+        return 0;
+    }
+    if (a > 255 || b > 255 || c > 255 || d > 255) {
+        return 0;
+    }
+    ip[0] = (uint8_t)a; ip[1] = (uint8_t)b; ip[2] = (uint8_t)c; ip[3] = (uint8_t)d;
+    return 1;
+}
+
+static void render_main_page(wiz_tls_context *ctx, const char *session) {
+    if (!https_auth_verify_session(session)) {
+        send_redirect(ctx, "/login");
+        return;
+    }
+
+    /* ARP 테이블 행 빌드 */
+    int off = 0;
+    if (s_arp_table.count == 0) {
+        off = snprintf(s_arp_rows, sizeof(s_arp_rows), "<p style='color:#888'>스캔 결과 없음</p>");
+    } else {
+        off = snprintf(s_arp_rows, sizeof(s_arp_rows),
+                       "<p>발견: %d개</p><table><tr><th>IP</th><th>MAC</th></tr>",
+                       s_arp_table.count);
+        for (int i = 0; i < s_arp_table.count && off < (int)sizeof(s_arp_rows) - 80; i++) {
+            arp_entry_t *e = &s_arp_table.entries[i];
+            off += snprintf(s_arp_rows + off, sizeof(s_arp_rows) - (size_t)off,
+                            "<tr><td>%d.%d.%d.%d</td>"
+                            "<td>%02X:%02X:%02X:%02X:%02X:%02X</td></tr>",
+                            e->ip[0], e->ip[1], e->ip[2], e->ip[3],
+                            e->mac[0], e->mac[1], e->mac[2],
+                            e->mac[3], e->mac[4], e->mac[5]);
+        }
+        snprintf(s_arp_rows + off, sizeof(s_arp_rows) - (size_t)off, "</table>");
+    }
+
+    int len = snprintf(s_main_body, sizeof(s_main_body), PAGE_MAIN,
+                       s_led19 ? "#118811" : "#cc2200",
+                       s_led19 ? "ON" : "OFF",
+                       s_ping_ip,
+                       s_ping_result,
+                       s_arp_rows);
+    if (len > 0) {
+        send_html(ctx, s_main_body, (size_t)len);
+    }
+}
+
+static void handle_post_gpio_on(wiz_tls_context *ctx, const char *session) {
+    if (!https_auth_verify_session(session)) {
+        send_redirect(ctx, "/login");
+        return;
+    }
+    GPIO_Output_Set(19);
+    s_led19 = 1;
+    render_main_page(ctx, session);
+}
+
+static void handle_post_gpio_off(wiz_tls_context *ctx, const char *session) {
+    if (!https_auth_verify_session(session)) {
+        send_redirect(ctx, "/login");
+        return;
+    }
+    GPIO_Output_Reset(19);
+    s_led19 = 0;
+    render_main_page(ctx, session);
+}
+
+static void handle_post_ping(wiz_tls_context *ctx, const char *session,
+                             const char *body_str) {
+    if (!https_auth_verify_session(session)) {
+        send_redirect(ctx, "/login");
+        return;
+    }
+
+    char ip_str[32] = {0};
+    get_form_field(body_str, "ip", ip_str, sizeof(ip_str));
+    strncpy(s_ping_ip, ip_str, sizeof(s_ping_ip) - 1);
+
+    uint8_t ip[4] = {0};
+    if (!parse_ip(ip_str, ip)) {
+        snprintf(s_ping_result, sizeof(s_ping_result), "Invalid IP address.");
+    } else {
+        ping_result_t pr = {0, 0};
+        ping_host(SOCK_UTILITY, ip, &pr);
+        if (pr.success) {
+            snprintf(s_ping_result, sizeof(s_ping_result), "RTT: %lums", (unsigned long)pr.rtt_ms);
+        } else {
+            snprintf(s_ping_result, sizeof(s_ping_result), "Request timed out.");
+        }
+    }
+    render_main_page(ctx, session);
+}
+
+static void handle_post_arp_scan(wiz_tls_context *ctx, const char *session) {
+    if (!https_auth_verify_session(session)) {
+        send_redirect(ctx, "/login");
+        return;
+    }
+    arp_scan(SOCK_UTILITY, &s_arp_table);
+    render_main_page(ctx, session);
+}
+
 static void handle_get_logout(wiz_tls_context *ctx, const char *session) {
     if (session[0]) {
         https_auth_logout(session);
@@ -522,6 +676,14 @@ static void dispatch_request(wiz_tls_context *ctx, const char *req) {
             handle_post_account_add(ctx, session, body);
         } else if (strcmp(path, "/account/del") == 0) {
             handle_post_account_del(ctx, session, body);
+        } else if (strcmp(path, "/gpio/on")     == 0) {
+            handle_post_gpio_on(ctx, session);
+        } else if (strcmp(path, "/gpio/off")    == 0) {
+            handle_post_gpio_off(ctx, session);
+        } else if (strcmp(path, "/ping")     == 0) {
+            handle_post_ping(ctx, session, body);
+        } else if (strcmp(path, "/arp/scan") == 0) {
+            handle_post_arp_scan(ctx, session);
         } else {
             send_redirect(ctx, "/");
         }
@@ -634,25 +796,59 @@ void http_webserver_task(void *argument) {
 
                 {
                     memset(https_rx_buf[i], 0, sizeof(https_rx_buf[i]));
-                    int ret = mbedtls_ssl_read(https_tls_ctx[i].ssl,
-                                               https_rx_buf[i],
-                                               sizeof(https_rx_buf[i]) - 1);
-                    if (ret > 0) {
+                    int total   = 0;
+                    int rd_err  = 0;
+                    int wait_ms = 0;
+
+                    /*  Read until complete HTTP request received (headers + body).
+                        Over the internet, POST body may arrive in a separate TLS record. */
+                    while (total < (int)sizeof(https_rx_buf[i]) - 1) {
+                        int ret = mbedtls_ssl_read(https_tls_ctx[i].ssl,
+                                                   https_rx_buf[i] + total,
+                                                   sizeof(https_rx_buf[i]) - (size_t)total - 1);
+                        if (ret > 0) {
+                            total += ret;
+                            https_rx_buf[i][total] = '\0';
+                            wait_ms = 0;
+
+                            const char *hdr_end = strstr((const char *)https_rx_buf[i], "\r\n\r\n");
+                            if (hdr_end) {
+                                const char *cl = strstr((const char *)https_rx_buf[i], "Content-Length:");
+                                if (!cl) {
+                                    break;    /* GET — no body */
+                                }
+                                int clen = 0;
+                                sscanf(cl + 15, "%d", &clen);
+                                int body_recv = total - (int)(hdr_end - (const char *)https_rx_buf[i]) - 4;
+                                if (body_recv >= clen) {
+                                    break;    /* body complete */
+                                }
+                            }
+                        } else if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
+                                   ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                            if (wait_ms >= 2000) {
+                                break;    /* 2s read timeout */
+                            }
+                            vTaskDelay(pdMS_TO_TICKS(10));
+                            wait_ms += 10;
+                        } else if (ret == 0 || ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ||
+                                   ret == MBEDTLS_ERR_SSL_TIMEOUT) {
+                            rd_err = ret;
+                            break;
+                        } else {
+                            PRT_SSL("HTTPS socket[%d] read err: -0x%x\r\n", sock, -ret);
+                            rd_err = ret;
+                            break;
+                        }
+                    }
+
+                    if (rd_err != 0) {
+                        https_close_session(sock, &https_tls_ctx[i], &https_tls_active[i]);
+                        https_response_sent[i] = FALSE;
+                    } else if (total > 0) {
                         dispatch_request(&https_tls_ctx[i], (const char *)https_rx_buf[i]);
                         https_response_sent[i]    = TRUE;
                         https_response_sent_ms[i] = millis();
-                    } else if (ret == 0 || ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-                        https_close_session(sock, &https_tls_ctx[i], &https_tls_active[i]);
-                        https_response_sent[i] = FALSE;
-                    } else if (ret == MBEDTLS_ERR_SSL_TIMEOUT) {
-                        https_close_session(sock, &https_tls_ctx[i], &https_tls_active[i]);
-                        https_response_sent[i] = FALSE;
-                    } else if (ret < 0 &&
-                               ret != MBEDTLS_ERR_SSL_WANT_READ &&
-                               ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-                        PRT_SSL("HTTPS socket[%d] read err: -0x%x\r\n", sock, -ret);
-                        https_close_session(sock, &https_tls_ctx[i], &https_tls_active[i]);
-                        https_response_sent[i] = FALSE;
                     }
                 }
                 break;

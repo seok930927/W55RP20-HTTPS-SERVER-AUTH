@@ -5,7 +5,6 @@
 #include "SSLInterface.h"
 #include "seg.h"
 #include "segcp.h"
-#include "snmp.h"
 #include "deviceHandler.h"
 #include "gpioHandler.h"
 
@@ -17,7 +16,6 @@ bool repeating_timer_callback(struct repeating_timer *t) ;
 volatile uint32_t delaytime_msec = 0;
 
 static volatile uint16_t msec_cnt = 0;
-static volatile uint8_t snmp_10ms_cnt = 0;
 static volatile uint8_t  sec_cnt = 0;
 static volatile uint8_t  min_cnt = 0;
 static volatile uint8_t  hour_cnt = 0;
@@ -46,11 +44,6 @@ bool repeating_timer_callback(struct repeating_timer *t) {
     //device_timer_msec();	        // [msec] time counter for DeviceHandler (fw update)
     //MilliTimer_Handler();           // [msec] time counter for MQTT client
 
-    if (++snmp_10ms_cnt >= 10) {
-        snmp_10ms_cnt = 0;
-        SNMP_time_handler();
-    }
-
     gpio_handler_timer_msec();
 
     /* Second Process */
@@ -63,7 +56,6 @@ bool repeating_timer_callback(struct repeating_timer *t) {
 
         devtime_sec++;              // device time counter,
         currenttime_sec++;          // Can be updated this counter value by time protocol like NTP.
-        LED_Toggle(LED3);
 #ifdef __USE_WATCHDOG__
         if ((get_wiz_tls_init_state() == ENABLE) && (get_device_status() == ST_OPEN)) {
             device_wdt_reset();

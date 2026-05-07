@@ -24,8 +24,6 @@
 #include "httpHandler.h"
 #include "wizchip_conf.h"
 #include "netHandler.h"
-#include "snmpHandler.h"
-
 #include "w5x00_spi.h"
 
 /**
@@ -40,9 +38,6 @@
 
 #define HTTP_WEBSERVER_TASK_STACK_SIZE 2048
 #define HTTP_WEBSERVER_TASK_PRIORITY 23
-
-#define SNMP_TASK_STACK_SIZE 2048
-#define SNMP_TASK_PRIORITY 7
 
 #define HEAP_MONITOR_TASK_STACK_SIZE 1024
 #define HEAP_MONITOR_TASK_PRIORITY 6
@@ -200,7 +195,6 @@ void start_task(void *argument) {
     reset_timer = xTimerCreate("reset_timer", pdMS_TO_TICKS(5000), pdFALSE, 0, reset_timer_callback);
     xTaskCreate(net_status_task, "Net_Status_Task", NET_TASK_STACK_SIZE, NULL, NET_TASK_PRIORITY, NULL);
     xTaskCreate(http_webserver_task, "http_webserver_task", HTTP_WEBSERVER_TASK_STACK_SIZE, NULL, HTTP_WEBSERVER_TASK_PRIORITY, NULL);
-    xTaskCreate(snmp_agent_task, "SNMP_Agent_Task", SNMP_TASK_STACK_SIZE, NULL, SNMP_TASK_PRIORITY, NULL);
     // xTaskCreate(heap_monitor_task, "Heap_Monitor_Task", HEAP_MONITOR_TASK_STACK_SIZE, NULL, HEAP_MONITOR_TASK_PRIORITY, NULL);
 #ifdef __USE_WATCHDOG__
     watchdog_enable(8388, 0);

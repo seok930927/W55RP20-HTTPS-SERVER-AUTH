@@ -196,8 +196,9 @@ target_sources(APP_PLATFORM_FILES PUBLIC
         ${APP_PORT_DIR}/platform_handler/src/gpioHandler.c
         ${APP_PORT_DIR}/platform_handler/src/httpHandler.c
         ${APP_PORT_DIR}/platform_handler/src/httpsAuth.c
+        ${APP_PORT_DIR}/platform_handler/src/pingHandler.c
+        ${APP_PORT_DIR}/platform_handler/src/arpHandler.c
         ${APP_PORT_DIR}/platform_handler/src/netHandler.c
-        ${APP_PORT_DIR}/platform_handler/src/snmpHandler.c
         ${APP_PORT_DIR}/platform_handler/src/spiHandler.c
         ${APP_PORT_DIR}/platform_handler/src/storageHandler.c
         ${APP_PORT_DIR}/platform_handler/src/timerHandler.c
@@ -218,7 +219,6 @@ target_link_libraries(APP_PLATFORM_FILES PUBLIC
         APP_CONFIG_FILES
         APP_IOLIBRARY_FILES
         APP_MBEDTLS_FILES
-        SNMP_FILES
         AWS_SDK_FILES
 )
 

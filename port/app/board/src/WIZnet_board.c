@@ -48,6 +48,19 @@ void RP2040_Board_Init(void) {
     // STATUS #1 : PHY link status (LED_0)
     // STATUS #2 : TCP connection status (LED_1)
     LED_Init(LED3);
+
+    /* GPIO19 - User LED: blink 2x on boot, leave ON */
+    GPIO_Configuration(19, IO_OUTPUT, IO_NOPULL);
+    GPIO_Output_Set(19);
+    sleep_ms(500);
+    GPIO_Output_Reset(19);
+    sleep_ms(500);
+    GPIO_Output_Set(19);
+    sleep_ms(500);
+    GPIO_Output_Reset(19);
+    sleep_ms(500);
+    GPIO_Output_Set(19);
+
 }
 
 uint8_t get_phylink(void) {
