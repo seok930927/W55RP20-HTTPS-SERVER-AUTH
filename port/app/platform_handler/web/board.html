@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>W55RP20 Board Control</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:'Segoe UI',sans-serif;margin:0;background:#f4f6f8;color:#222}
+header{background:#0055aa;color:#fff;padding:10px 20px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:1.1em;margin:0}
+header a{color:#cde3ff;text-decoration:none;margin-left:14px;font-size:.9em}
+.wrap{display:flex;flex-wrap:wrap;gap:16px;padding:16px;max-width:1340px;margin:0 auto}
+.boardbox{flex:1 1 660px;min-width:340px}
+.panel{flex:1 1 320px;min-width:300px}
+.card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h3{margin:0 0 10px;font-size:1em;color:#0055aa;border-bottom:1px solid #eee;padding-bottom:6px}
+svg{width:100%;height:auto;user-select:none}
+.pad{cursor:pointer}
+.pad.rsv{cursor:not-allowed}
+.modebtn{display:inline-block;padding:7px 12px;margin:3px;border:1px solid #bbb;border-radius:5px;background:#fff;cursor:pointer;font-size:.85em}
+.modebtn.cur{background:#0055aa;color:#fff;border-color:#0055aa}
+.bigbtn{padding:10px 30px;border:none;border-radius:6px;color:#fff;font-size:1em;cursor:pointer;margin:4px}
+.hi{background:#118811}.lo{background:#777}.blue{background:#0055aa}
+input[type=text],input[type=number],select{padding:7px;border:1px solid #ccc;border-radius:4px;margin:2px;font-size:.9em}
+input[type=range]{width:100%}
+.statebig{font-size:1.5em;font-weight:bold;margin:8px 0}
+.muted{color:#888;font-size:.85em}
+.chip{display:inline-block;background:#e3f0fb;border:1px solid #9cc4e8;border-radius:12px;padding:3px 10px;margin:3px;font-size:.85em}
+.bar{height:14px;background:#eee;border-radius:7px;overflow:hidden;margin-top:6px}
+.bar>div{height:100%;background:#9c27b0;width:0%}
+.res{font-family:Consolas,monospace;background:#f2f2f2;border-radius:4px;padding:8px;margin-top:8px;min-height:1.4em;word-break:break-all;font-size:.9em}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 22px;border-radius:6px;opacity:0;transition:opacity .3s;pointer-events:none;font-size:.9em}
+.legend span{display:inline-block;margin:2px 8px 2px 0;font-size:.78em}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+.rowflex{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>W55RP20 원격 보드 제어</h1>
+  <nav><a href="/account">설정</a><a href="/logout">로그아웃</a></nav>
+</header>
+
+<div class="wrap">
+  <div class="boardbox">
+    <div class="card">
+      <h3>PIN MAP (핀 또는 배지를 클릭하세요)</h3>
+      <svg id="board" viewBox="0 0 880 580"></svg>
+      <div class="legend">
+        <span><i style="background:#555"></i>미사용</span>
+        <span><i style="background:#2196f3"></i>입력</span>
+        <span><i style="background:#4caf50"></i>출력</span>
+        <span><i style="background:#ff9800"></i>PWM</span>
+        <span><i style="background:#9c27b0"></i>ADC</span>
+        <span><i style="background:#009688"></i>I2C</span>
+        <span><i style="background:#e91e63"></i>SPI</span>
+        <span><i style="background:#616161"></i>예약됨</span>
+        <span><i style="background:#b71c1c"></i>전원</span>
+        <span><i style="background:#111"></i>GND</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card" id="pincard">
+      <h3 id="pintitle">핀을 선택하세요</h3>
+      <div id="pinbody"><p class="muted">핀맵에서 제어할 핀을 클릭하면 설정 메뉴가 나타납니다.</p></div>
+    </div>
+
+    <div class="card" id="i2ccard">
+      <h3>I2C 유틸리티</h3>
+      <p class="muted">I2C0: SDA=GP0/16/28, SCL=GP1/17 &nbsp;|&nbsp; I2C1: SDA=GP2/26, SCL=GP3/27<br>
+      해당 버스의 SDA·SCL 핀을 모두 설정하면 활성화됩니다. (100kHz)</p>
+      <div class="rowflex">
+        버스: <select id="i2cbus"><option value="0">I2C0</option><option value="1">I2C1</option></select>
+        <button class="bigbtn blue" id="i2cscan" disabled>스캔</button>
+      </div>
+      <div id="i2cfound"></div>
+      <div class="rowflex" style="margin-top:8px">
+        주소 0x<input type="text" id="i2caddr" size="3" placeholder="3C">
+        레지스터 0x<input type="text" id="i2creg" size="3" value="00">
+        길이 <input type="number" id="i2clen" min="1" max="16" value="1" style="width:60px">
+        <button class="bigbtn blue" id="i2cread" disabled>읽기</button>
+      </div>
+      <div class="rowflex">
+        쓰기 데이터(hex) <input type="text" id="i2cdata" size="20" placeholder="A1B2">
+        <button class="bigbtn blue" id="i2cwrite" disabled>쓰기</button>
+      </div>
+      <div class="res" id="i2cres"></div>
+    </div>
+
+    <div class="card" id="spicard">
+      <h3>SPI0 유틸리티</h3>
+      <p class="muted">SCK=GP2, TX(MOSI)=GP3, RX(MISO)=GP0/16, CS=GP1/17(선택) — SCK·TX·RX 설정 시 활성화 (1MHz, Mode 0)</p>
+      <div class="rowflex">
+        TX(hex) <input type="text" id="spidata" size="24" placeholder="9F0000">
+        <button class="bigbtn blue" id="spixfer" disabled>전송</button>
+      </div>
+      <div class="res" id="spires"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ---------- 핀 정의 ---------- */
+var RSV = {4:'UART1 TX (S2E)',5:'UART1 RX (S2E)',6:'UART1 CTS',7:'UART1 RTS',
+           8:'DTR',9:'DSR',10:'PHY LINK LED',11:'TCP LED',12:'UART IF SEL',13:'UART/SPI SEL',
+           14:'HW TRIG',15:'BOOT MODE',18:'FACTORY RESET',20:'W5500 CS',21:'W5500 SCK',22:'W5500 MISO'};
+var CAPS = {0:['in','out','pwm','i2c0sda','spi0rx'],1:['in','out','pwm','i2c0scl','spi0cs'],
+            2:['in','out','pwm','i2c1sda','spi0sck'],3:['in','out','pwm','i2c1scl','spi0tx'],
+            16:['in','out','pwm','i2c0sda','spi0rx'],17:['in','out','pwm','i2c0scl','spi0cs'],
+            19:['in','out','pwm'],26:['in','out','pwm','adc','i2c1sda'],
+            27:['in','out','pwm','adc','i2c1scl'],28:['in','out','pwm','adc','i2c0sda']};
+var MLABEL = {dis:'사용 안 함',in:'입력',out:'출력',pwm:'PWM',adc:'ADC',
+              i2c0sda:'I2C0 SDA',i2c0scl:'I2C0 SCL',i2c1sda:'I2C1 SDA',i2c1scl:'I2C1 SCL',
+              spi0rx:'SPI0 RX',spi0cs:'SPI0 CS',spi0sck:'SPI0 SCK',spi0tx:'SPI0 TX'};
+var MSHORT = {in:'IN',out:'OUT',pwm:'PWM',adc:'ADC',
+              i2c0sda:'I2C0 SDA',i2c0scl:'I2C0 SCL',i2c1sda:'I2C1 SDA',i2c1scl:'I2C1 SCL',
+              spi0rx:'SPI0 RX',spi0cs:'SPI0 CS',spi0sck:'SPI0 SCK',spi0tx:'SPI0 TX'};
+var MCOLOR = {dis:'#555',in:'#2196f3',out:'#4caf50',pwm:'#ff9800',adc:'#9c27b0',
+              i2c0sda:'#009688',i2c0scl:'#009688',i2c1sda:'#009688',i2c1scl:'#009688',
+              spi0rx:'#e91e63',spi0cs:'#e91e63',spi0sck:'#e91e63',spi0tx:'#e91e63'};
+/* 물리핀 배열: 왼쪽 1~20 (위→아래), 오른쪽 40~21 (위→아래). [라벨, gp(없으면 -1), 종류] */
+var LCOL = [['GP0',0],['GP1',1],['GND',-1,'g'],['GP2',2],['GP3',3],['GP4',4],['GP5',5],['GND',-1,'g'],
+            ['GP6',6],['GP7',7],['GP8',8],['GP9',9],['GND',-1,'g'],['GP10',10],['GP11',11],
+            ['GP12',12],['GP13',13],['GND',-1,'g'],['GP14',14],['GP15',15]];
+var RCOL = [['VBUS',-1,'p'],['VSYS',-1,'p'],['GND',-1,'g'],['3V3_EN',-1,'x'],['3V3',-1,'p'],
+            ['ADC_REF',-1,'x'],['GP28',28],['AGND',-1,'g'],['GP27',27],['GP26',26],
+            ['RUN',-1,'x'],['GP22',22],['GND',-1,'g'],['GP21',21],['GP20',20],
+            ['GP19',19],['GP18',18],['GND',-1,'g'],['GP17',17],['GP16',16]];
+
+var BOARD_X = 290, BOARD_W = 300, ROW_Y0 = 52, ROW_H = 25;
+var PAD_L = BOARD_X + 17, PAD_R = BOARD_X + BOARD_W - 17;
+var BADGE_L = BOARD_X - 8, BADGE_R = BOARD_X + BOARD_W + 8;
+
+var S = {pins:{}, i2c0:0, i2c1:0, spi0:0};   /* 서버 상태 */
+var sel = -1, busy = false, toastTimer = 0;
+
+function $(id){ return document.getElementById(id); }
+function toast(msg){
+  var t = $('toast'); t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.style.opacity = 0; }, 2500);
+}
+
+/* ---------- 통신 ---------- */
+function api(path, params){
+  busy = true;
+  var opt = params ? {method:'POST', body:new URLSearchParams(params)} : {};
+  return fetch(path, opt).then(function(r){
+    if (r.status === 401){ location = '/login'; throw 0; }
+    return r.json();
+  }).catch(function(e){ if (e !== 0) toast('통신 오류'); return null; })
+    .finally(function(){ busy = false; });
+}
+function applyState(st){
+  if (!st || !st.pins) return;
+  S.i2c0 = st.i2c0; S.i2c1 = st.i2c1; S.spi0 = st.spi0;
+  st.pins.forEach(function(p){ S.pins[p.gp] = p; });
+  paintBoard(); paintBadges(); paintPanelValues(); paintBusButtons();
+}
+function setPin(params){
+  api('/api/pin', params).then(function(st){
+    if (st){ applyState(st); renderPanel(); }
+  });
+}
+
+/* ---------- SVG 핀맵 ---------- */
+var SVGNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, text){
+  var e = document.createElementNS(SVGNS, tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  return e;
+}
+function fmtHz(f){
+  if (f >= 1000000) return (f / 1000000) + 'M';
+  if (f >= 1000)    return (f / 1000) + 'k';
+  return f + '';
+}
+/* 배지 폭 추정 (ASCII 5.6px, 한글 등 9.5px) */
+function textW(s){
+  var w = 11;
+  for (var i = 0; i < s.length; i++) w += s.charCodeAt(i) > 127 ? 9.5 : 5.6;
+  return Math.round(w);
+}
+
+function buildBoard(){
+  var svg = $('board');
+  svg.appendChild(el('rect', {x:BOARD_X,y:10,width:BOARD_W,height:560,rx:12,fill:'#1b5e20',stroke:'#0d3f12','stroke-width':3}));
+  svg.appendChild(el('rect', {x:BOARD_X+BOARD_W/2-35,y:2,width:70,height:34,rx:3,fill:'#9e9e9e',stroke:'#616161'}));
+  svg.appendChild(el('text', {x:BOARD_X+BOARD_W/2,y:24,'text-anchor':'middle','font-size':11,fill:'#333'}, 'USB'));
+  svg.appendChild(el('rect', {x:BOARD_X+BOARD_W/2-45,y:230,width:90,height:90,rx:4,fill:'#212121'}));
+  svg.appendChild(el('text', {x:BOARD_X+BOARD_W/2,y:270,'text-anchor':'middle','font-size':13,fill:'#fff','font-weight':'bold'}, 'W55RP20'));
+  svg.appendChild(el('text', {x:BOARD_X+BOARD_W/2,y:288,'text-anchor':'middle','font-size':8,fill:'#aaa'}, 'RP2040 + W5500'));
+  svg.appendChild(el('text', {x:BOARD_X+BOARD_W/2,y:560,'text-anchor':'middle','font-size':9,fill:'#81c784'}, 'W55RP20-EVB-Pico'));
+
+  for (var i = 0; i < 20; i++){
+    addPad(LCOL[i], PAD_L,  ROW_Y0 + i * ROW_H, 'start');
+    addPad(RCOL[i], PAD_R, ROW_Y0 + i * ROW_H, 'end');
+  }
+  /* 동적 배지 레이어 (폴링마다 다시 그림) */
+  svg.appendChild(el('g', {id:'badges'}));
+}
+function addPad(def, x, y, side){
+  var svg = $('board'), label = def[0], gp = def[1], kind = def[2] || '';
+  var g = el('g', {});
+  var fill = kind === 'g' ? '#111' : kind === 'p' ? '#b71c1c' : kind === 'x' ? '#455a64' : (RSV[gp] !== undefined ? '#2b2b2b' : '#555');
+  var pad = el('circle', {cx:x, cy:y, r:8, fill:fill, stroke:'#cfd8dc','stroke-width':1.5});
+  if (gp >= 0 && CAPS[gp]){
+    pad.setAttribute('class','pad'); pad.setAttribute('id','pad'+gp);
+    g.addEventListener('click', function(){ select(gp); });
+    g.style.cursor = 'pointer';
+  } else if (gp >= 0){
+    pad.setAttribute('class','pad rsv');
+    var t = el('title', {}); t.textContent = '예약됨: ' + (RSV[gp] || '시스템'); g.appendChild(t);
+  }
+  g.appendChild(pad);
+  var tx = side === 'start' ? x + 14 : x - 14;
+  g.appendChild(el('text', {x:tx, y:y+4,'text-anchor':side,'font-size':10,fill:'#e8f5e9'}, label));
+  $('board').appendChild(g);
+}
+function paintBoard(){
+  for (var gp in CAPS){
+    var p = S.pins[gp], pad = $('pad'+gp);
+    if (!pad) continue;
+    var m = p ? p.m : 'dis';
+    pad.setAttribute('fill', MCOLOR[m] || '#555');
+    pad.setAttribute('stroke', Number(gp) === sel ? '#ffeb3b' : '#cfd8dc');
+    pad.setAttribute('stroke-width', Number(gp) === sel ? 3 : 1.5);
+  }
+}
+
+/* ---------- 양옆 기능/값 배지 (ESP32 핀맵 스타일) ---------- */
+function stateBadge(p){
+  var m = p ? p.m : 'dis';
+  if (m === 'in')  return {t:'IN ' + (p.v ? '1' : '0') + (p.p === 'up' ? ' ↑' : p.p === 'down' ? ' ↓' : ''), bg:MCOLOR.in};
+  if (m === 'out') return {t:'OUT ' + (p.v ? 'HIGH' : 'LOW'), bg:MCOLOR.out};
+  if (m === 'pwm') return {t:'PWM ' + fmtHz(p.f) + ' ' + p.d + '%', bg:MCOLOR.pwm};
+  if (m === 'adc') return {t:'ADC ' + p.v + '=' + (p.v * 3.3 / 4095).toFixed(2) + 'V', bg:MCOLOR.adc};
+  if (m !== 'dis') return {t:MSHORT[m], bg:MCOLOR[m]};
+  return {t:'—', bg:'#555'};
+}
+function rowBadges(def){
+  var label = def[0], gp = def[1], kind = def[2] || '';
+  if (kind === 'g') return [{t:'GND', bg:'#111'}];
+  if (kind === 'p') return [{t:label, bg:'#b71c1c'}];
+  if (kind === 'x') return [{t:label, bg:'#455a64'}];
+  if (RSV[gp] !== undefined) return [{t:RSV[gp], bg:'#616161'}];
+  var p = S.pins[gp], m = p ? p.m : 'dis';
+  var items = [stateBadge(p)];
+  (CAPS[gp] || []).forEach(function(c){
+    if (c !== m) items.push({t:MSHORT[c], bg:MCOLOR[c], dim:1});
+  });
+  return items;
+}
+function drawBadgeRow(layer, def, x, y, dir){
+  var gp = def[1];
+  var g = el('g', {});
+  if (gp >= 0 && CAPS[gp]){
+    g.style.cursor = 'pointer';
+    g.addEventListener('click', function(){ select(gp); });
+  }
+  var off = 0;
+  rowBadges(def).forEach(function(it){
+    var w = textW(it.t);
+    var bx = dir > 0 ? x + off : x - off - w;
+    g.appendChild(el('rect', {x:bx, y:y-9, width:w, height:17, rx:3,
+                              fill:it.bg, opacity:it.dim ? 0.3 : 1}));
+    g.appendChild(el('text', {x:bx + w/2, y:y+4, 'text-anchor':'middle', 'font-size':9,
+                              fill:'#fff', opacity:it.dim ? 0.85 : 1}, it.t));
+    off += w + 4;
+  });
+  layer.appendChild(g);
+}
+function paintBadges(){
+  var layer = $('badges');
+  while (layer.firstChild) layer.removeChild(layer.firstChild);
+  for (var i = 0; i < 20; i++){
+    var y = ROW_Y0 + i * ROW_H;
+    drawBadgeRow(layer, LCOL[i], BADGE_L, y, -1);
+    drawBadgeRow(layer, RCOL[i], BADGE_R, y, +1);
+  }
+}
+
+/* ---------- 핀 설정 패널 ---------- */
+function select(gp){ sel = gp; paintBoard(); renderPanel(); }
+function curState(){ return S.pins[sel] || {m:'dis'}; }
+
+function renderPanel(){
+  if (sel < 0) return;
+  var p = curState();
+  $('pintitle').textContent = 'GP' + sel + ' — ' + (MLABEL[p.m] || p.m);
+  var h = '<div>';
+  ['dis'].concat(CAPS[sel]).forEach(function(m){
+    h += '<span class="modebtn' + (p.m === m ? ' cur' : '') + '" data-m="' + m + '">' + MLABEL[m] + '</span>';
+  });
+  h += '</div><div id="sub" style="margin-top:12px"></div>';
+  $('pinbody').innerHTML = h;
+  $('pinbody').querySelectorAll('.modebtn').forEach(function(b){
+    b.addEventListener('click', function(){ changeMode(b.getAttribute('data-m')); });
+  });
+  renderSub();
+}
+function changeMode(m){
+  var prm = {gp:sel, mode:m};
+  if (m === 'in')  prm.pull = 'none';
+  if (m === 'out') prm.val = 0;
+  if (m === 'pwm'){ prm.freq = 1000; prm.duty = 50; }
+  setPin(prm);
+}
+function renderSub(){
+  var p = curState(), sub = $('sub'), h = '';
+  if (p.m === 'in'){
+    h = '<div class="rowflex">풀 저항: <select id="pullsel">' +
+        '<option value="none"' + (p.p === 'none' ? ' selected' : '') + '>없음</option>' +
+        '<option value="up"'   + (p.p === 'up'   ? ' selected' : '') + '>풀업</option>' +
+        '<option value="down"' + (p.p === 'down' ? ' selected' : '') + '>풀다운</option></select></div>' +
+        '<div class="statebig">현재 값: <span id="subval" style="color:' + (p.v ? '#118811' : '#cc2200') + '">' + (p.v ? 'HIGH (1)' : 'LOW (0)') + '</span></div>' +
+        '<p class="muted">값은 자동으로 갱신됩니다.</p>';
+  } else if (p.m === 'out'){
+    h = '<div class="statebig">출력: <span id="subval" style="color:' + (p.v ? '#118811' : '#cc2200') + '">' + (p.v ? 'HIGH' : 'LOW') + '</span></div>' +
+        '<button class="bigbtn hi" id="sethigh">HIGH</button>' +
+        '<button class="bigbtn lo" id="setlow">LOW</button>';
+  } else if (p.m === 'pwm'){
+    h = '<div class="rowflex">주파수(Hz): <input type="number" id="pwmfreq" min="50" max="10000000" value="' + (p.f || 1000) + '" style="width:110px"></div>' +
+        '<div>듀티: <span id="dutyval">' + (p.d != null ? p.d : 50) + '</span>%' +
+        '<input type="range" id="pwmduty" min="0" max="100" value="' + (p.d != null ? p.d : 50) + '"></div>' +
+        '<button class="bigbtn blue" id="pwmapply">적용</button>';
+  } else if (p.m === 'adc'){
+    var volts = (p.v * 3.3 / 4095).toFixed(3);
+    h = '<div class="statebig">RAW: <span id="subval">' + p.v + '</span> / 4095</div>' +
+        '<div>전압: <span id="subvolt">' + volts + '</span> V</div>' +
+        '<div class="bar"><div id="adcbar" style="width:' + (p.v * 100 / 4095).toFixed(1) + '%"></div></div>' +
+        '<p class="muted">3.3V 기준, 자동 갱신.</p>';
+  } else if (p.m !== 'dis'){
+    h = '<p class="muted">' + MLABEL[p.m] + ' 기능 핀으로 설정되었습니다. 아래 해당 버스 유틸리티 패널을 사용하세요.</p>';
+  }
+  sub.innerHTML = h;
+
+  var e;
+  if ((e = $('pullsel')))  e.addEventListener('change', function(){ setPin({gp:sel, mode:'in', pull:e.value}); });
+  if ((e = $('sethigh')))  e.addEventListener('click', function(){ setPin({gp:sel, mode:'out', val:1}); });
+  if ((e = $('setlow')))   e.addEventListener('click', function(){ setPin({gp:sel, mode:'out', val:0}); });
+  if ((e = $('pwmduty')))  e.addEventListener('input', function(){ $('dutyval').textContent = e.value; });
+  if ((e = $('pwmapply'))) e.addEventListener('click', function(){
+    setPin({gp:sel, mode:'pwm', freq:$('pwmfreq').value, duty:$('pwmduty').value});
+  });
+}
+/* 폴링 시 값만 갱신 (입력 포커스 보존을 위해 패널 재생성 안 함) */
+function paintPanelValues(){
+  if (sel < 0) return;
+  var p = curState(), e;
+  if (p.m === 'in' && (e = $('subval'))){
+    e.textContent = p.v ? 'HIGH (1)' : 'LOW (0)';
+    e.style.color = p.v ? '#118811' : '#cc2200';
+  } else if (p.m === 'adc' && (e = $('subval'))){
+    e.textContent = p.v;
+    if ($('subvolt')) $('subvolt').textContent = (p.v * 3.3 / 4095).toFixed(3);
+    if ($('adcbar'))  $('adcbar').style.width = (p.v * 100 / 4095).toFixed(1) + '%';
+  }
+}
+
+/* ---------- I2C / SPI 패널 ---------- */
+function paintBusButtons(){
+  var bus = Number($('i2cbus').value);
+  var rdy = bus === 0 ? S.i2c0 : S.i2c1;
+  ['i2cscan','i2cread','i2cwrite'].forEach(function(id){ $(id).disabled = !rdy; });
+  $('spixfer').disabled = !S.spi0;
+}
+function hexOk(s){ return /^[0-9a-fA-F]*$/.test(s) && s.length % 2 === 0; }
+
+function initBusPanels(){
+  $('i2cbus').addEventListener('change', paintBusButtons);
+  $('i2cscan').addEventListener('click', function(){
+    $('i2cres').textContent = '스캔 중...';
+    api('/api/i2c', {op:'scan', bus:$('i2cbus').value}).then(function(r){
+      if (!r) return;
+      if (r.err){ $('i2cres').textContent = r.err; return; }
+      $('i2cfound').innerHTML = r.found.length
+        ? r.found.map(function(a){ return '<span class="chip">' + a + '</span>'; }).join('')
+        : '<p class="muted">장치 없음</p>';
+      $('i2cres').textContent = r.found.length + '개 발견';
+    });
+  });
+  $('i2cread').addEventListener('click', function(){
+    api('/api/i2c', {op:'read', bus:$('i2cbus').value, addr:$('i2caddr').value,
+                     reg:$('i2creg').value, len:$('i2clen').value}).then(function(r){
+      if (r) $('i2cres').textContent = r.err ? r.err : ('수신: ' + r.data);
+    });
+  });
+  $('i2cwrite').addEventListener('click', function(){
+    var d = $('i2cdata').value.trim();
+    if (!hexOk(d) || !d){ toast('hex 데이터 형식 오류'); return; }
+    api('/api/i2c', {op:'write', bus:$('i2cbus').value, addr:$('i2caddr').value,
+                     reg:$('i2creg').value, data:d}).then(function(r){
+      if (r) $('i2cres').textContent = r.err ? r.err : '쓰기 완료';
+    });
+  });
+  $('spixfer').addEventListener('click', function(){
+    var d = $('spidata').value.trim();
+    if (!hexOk(d) || !d){ toast('hex 데이터 형식 오류'); return; }
+    api('/api/spi', {data:d}).then(function(r){
+      if (r) $('spires').textContent = r.err ? r.err : ('RX: ' + r.rx);
+    });
+  });
+}
+
+/* ---------- 시작 ---------- */
+buildBoard();
+paintBadges();
+initBusPanels();
+api('/api/pins').then(applyState);
+/* keep-alive 연결을 재사용하므로 폴링 비용이 낮다 — 1.5초 주기 */
+setInterval(function(){ if (!busy) api('/api/pins').then(applyState); }, 1500);
+</script>
+</body>
+</html>

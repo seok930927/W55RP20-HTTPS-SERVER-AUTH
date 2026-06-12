@@ -158,6 +158,12 @@ int WIZnetSend(void *ctx, const unsigned char *buf, unsigned int len) {
     uint8_t sock = (uint8_t)(uintptr_t)ctx;
     int ret = send(sock, (uint8_t *)buf, (uint16_t)len);
 
+    /*  SOCK_BUSY(0): 이전 SEND가 아직 완료되지 않음 (TLS 레코드가 W5500
+        2KB TX 버퍼보다 클 때 부분 전송 직후 발생). 0을 그대로 반환하면
+        mbedTLS가 치명 오류로 처리하므로 WANT_WRITE로 바꿔 재시도시킨다. */
+    if (ret == SOCK_BUSY) {
+        return MBEDTLS_ERR_SSL_WANT_WRITE;
+    }
     if (ret < 0) {
         if (getSn_SR(sock) == SOCK_CLOSE_WAIT || getSn_SR(sock) == SOCK_CLOSED) {
             return MBEDTLS_ERR_SSL_CONN_EOF;
@@ -426,6 +432,17 @@ int wiz_tls_server_init(wiz_tls_context* tlsContext, int* socket_fd) {
     mbedtls_ssl_conf_rng(tlsContext->conf, mbedtls_ctr_drbg_random, tlsContext->ctr_drbg);
     mbedtls_ssl_conf_read_timeout(tlsContext->conf, 2000);
 
+    /*  정적 RSA 키교환만 허용.
+        ECDHE 계열은 RP2040 소프트웨어 EC 연산 때문에 핸드셰이크가 수 초씩
+        걸리므로 차단한다. (RSA-only + 세션 캐시 → 재연결 수십 ms) */
+    static const int https_ciphersuites[] = {
+        MBEDTLS_TLS_RSA_WITH_AES_128_GCM_SHA256,
+        MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA256,
+        MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA256,
+        0
+    };
+    mbedtls_ssl_conf_ciphersuites(tlsContext->conf, https_ciphersuites);
+
     ret = mbedtls_ssl_conf_own_cert(tlsContext->conf, tlsContext->clicert, tlsContext->pkey);
     if (ret != 0) {
         PRT_SSL(" failed\r\n  ! mbedtls_ssl_conf_own_cert returned -0x%x\r\n", -ret);
@@ -570,6 +587,12 @@ int wiz_tls_server_handshake(wiz_tls_context* tlsContext) {
 
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
             PRT_SSL(" failed\r\n  ! mbedtls_ssl_handshake returned -0x%x\r\n", -ret);
+            return -1;
+        }
+
+        uint8_t sr = getSn_SR(sock);
+        if (sr == SOCK_CLOSED || sr == SOCK_CLOSE_WAIT) {
+            PRT_SSL(" failed\r\n  ! Socket closed during handshake sock=%d\r\n", sock);
             return -1;
         }
 

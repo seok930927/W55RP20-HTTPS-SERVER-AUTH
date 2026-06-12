@@ -13,12 +13,15 @@ target_link_libraries(APP_MCU_FILES PUBLIC
         pico_stdlib
         pico_stdlib_headers
         pico_rand
+        hardware_adc
         hardware_clocks
         hardware_dma
         hardware_flash
         hardware_gpio
+        hardware_i2c
         hardware_irq
         hardware_pio
+        hardware_pwm
         hardware_resets
         hardware_spi
         hardware_structs
@@ -186,6 +189,19 @@ if(${BOARD_NAME} STREQUAL W55RP20_S2E OR ${BOARD_NAME} STREQUAL W232N OR ${BOARD
 pico_generate_pio_header(APP_PLATFORM_FILES ${APP_PORT_DIR}/platform_handler/src/uart_tx.pio)
 endif()
 
+# board.html을 C 헤더(board_page.h)로 임베드
+set(BOARD_HTML ${APP_PORT_DIR}/platform_handler/web/board.html)
+set(BOARD_PAGE_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/board_page.h)
+file(READ ${BOARD_HTML} BOARD_HTML_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," BOARD_HTML_BYTES "${BOARD_HTML_HEX}")
+file(WRITE ${BOARD_PAGE_HEADER}
+    "/* auto-generated from platform_handler/web/board.html - DO NOT EDIT */\n"
+    "#ifndef BOARD_PAGE_H_\n#define BOARD_PAGE_H_\n"
+    "static const unsigned char BOARD_PAGE[] = {${BOARD_HTML_BYTES}0x00};\n"
+    "#define BOARD_PAGE_LEN (sizeof(BOARD_PAGE) - 1)\n"
+    "#endif\n")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${BOARD_HTML})
+
 
 target_sources(APP_PLATFORM_FILES PUBLIC
         ${APP_PORT_DIR}/platform_handler/src/bufferHandler.c
@@ -196,8 +212,7 @@ target_sources(APP_PLATFORM_FILES PUBLIC
         ${APP_PORT_DIR}/platform_handler/src/gpioHandler.c
         ${APP_PORT_DIR}/platform_handler/src/httpHandler.c
         ${APP_PORT_DIR}/platform_handler/src/httpsAuth.c
-        ${APP_PORT_DIR}/platform_handler/src/pingHandler.c
-        ${APP_PORT_DIR}/platform_handler/src/arpHandler.c
+        ${APP_PORT_DIR}/platform_handler/src/pinCtrl.c
         ${APP_PORT_DIR}/platform_handler/src/netHandler.c
         ${APP_PORT_DIR}/platform_handler/src/spiHandler.c
         ${APP_PORT_DIR}/platform_handler/src/storageHandler.c
@@ -211,6 +226,7 @@ target_include_directories(APP_PLATFORM_FILES PUBLIC
         ${APP_PORT_DIR}/serial_to_ethernet/inc
         ${APP_PORT_DIR}/aws-iot-device-sdk-embedded-C/inc
         ${APP_PORT_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 target_link_libraries(APP_PLATFORM_FILES PUBLIC

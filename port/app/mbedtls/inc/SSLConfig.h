@@ -43,11 +43,22 @@
 #define MBEDTLS_REMOVE_ARC4_CIPHERSUITES
 #define MBEDTLS_KEY_EXCHANGE_RSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED
-#define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
-#define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 #define MBEDTLS_PK_PARSE_EC_EXTENDED
 #define MBEDTLS_ERROR_STRERROR_DUMMY
 #define MBEDTLS_GENPRIME
+
+/*
+    TLS record buffers.
+      IN  — HTTP requests are small (<1 KB), 2 KB is plenty.
+      OUT — large pages/JSON split into fewer records; each record costs
+            an AES-GCM encrypt + W5500 SPI send, so 8 KB OUT cuts the
+            per-response record count to a third vs 2 KB.
+    Per-context heap impact vs. mbedTLS default (16 KB each):
+      IN  : -14 KB / context
+      OUT :  -8 KB / context
+*/
+#define MBEDTLS_SSL_IN_CONTENT_LEN              2048
+#define MBEDTLS_SSL_OUT_CONTENT_LEN             8192
 
 #define MBEDTLS_PLATFORM_C
 #define MBEDTLS_PLATFORM_MEMORY
@@ -110,9 +121,6 @@
 #define MBEDTLS_X509_CSR_PARSE_C
 
 #define MBEDTLS_XTEA_C
-
-#define MBEDTLS_SSL_IN_CONTENT_LEN  4096
-#define MBEDTLS_SSL_OUT_CONTENT_LEN 4096
 
 #define MBEDTLS_MPI_MAX_SIZE 1024      /**< Maximum number of bytes for usable MPIs. */
 #define MBEDTLS_ENTROPY_MAX_SOURCES 10 /**< Maximum number of sources supported */
