@@ -23,44 +23,15 @@ void RP2040_Board_Init(void) {
     SFlash_Init();
 #endif
 
-#ifdef __USE_HW_FACTORY_RESET__
-    // Factory reset pin initialize
-    init_factory_reset_pin();
-#endif
+    /*  EVB-Pico 핀제어 데모 펌웨어:
+        S2E 전용 핀 기능은 사용하지 않으므로 초기화하지 않는다.
+        (팩토리리셋 GP18, IF선택 GP12/13, 상태LED GP10/11,
+         DTR/DSR GP8/9, HW트리거 GP14)
+        → GP4~GP15는 웹 핀 제어(pinCtrl)에서 자유롭게 사용 가능. */
 
-#ifdef __USE_HW_APPBOOT_ENTRY__
-    // AppBoot entry pin initialize
-    init_appboot_entry_pin();
-#endif
-
-#ifdef __USE_UART_IF_SELECTOR__
-    // UART interface selector pin initialize
-    init_uart_if_sel_pin(); // UART interface selector: RS-232 / RS-422 / RS-485
-#endif
-    init_connection_status_io();
-
-    /* GPIOs Initialize */
-    Device_IO_Init();
-
-    /* HW_TRIG input pin - Check this Pin only once at boot (switch) */
-    init_hw_trig_pin();
-
-    // STATUS #1 : PHY link status (LED_0)
-    // STATUS #2 : TCP connection status (LED_1)
-    LED_Init(LED3);
-
-    /* GPIO19 - User LED: blink 2x on boot, leave ON */
+    /* GPIO19 - 온보드 사용자 LED: 부팅 표시로 ON */
     GPIO_Configuration(19, IO_OUTPUT, IO_NOPULL);
     GPIO_Output_Set(19);
-    sleep_ms(500);
-    GPIO_Output_Reset(19);
-    sleep_ms(500);
-    GPIO_Output_Set(19);
-    sleep_ms(500);
-    GPIO_Output_Reset(19);
-    sleep_ms(500);
-    GPIO_Output_Set(19);
-
 }
 
 uint8_t get_phylink(void) {

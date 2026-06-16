@@ -186,23 +186,9 @@ void init_connection_status_io(void) {
 }
 
 // Check the PHY link status
+// (상태 LED 핀 출력은 제거됨 — GP10/11은 웹 핀 제어용으로 개방)
 uint8_t check_phylink_status(void) {
-    static uint8_t prev_link_status;
-    uint8_t link_status;
-
-    link_status = get_phylink();
-
-    //PRT_INFO("link_status = %d\r\n", link_status);
-
-    if (prev_link_status != link_status) {
-        if (link_status == PHY_LINK_ON) {
-            set_connection_status_io(STATUS_PHYLINK_PIN, ON);    // PHY Link up
-        } else {
-            set_connection_status_io(STATUS_PHYLINK_PIN, OFF);    // PHY Link down
-        }
-        prev_link_status = link_status;
-    }
-    return link_status;
+    return get_phylink();
 }
 
 // This function have to call every 1 millisecond by Timer IRQ handler routine.

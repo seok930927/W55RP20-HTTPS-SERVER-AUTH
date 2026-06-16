@@ -54,50 +54,50 @@ static const char PAGE_LOGIN[] =
     "<button>Login</button>"
     "</form>"
     "<p class=e>%s</p>"
-    "<hr><a href=/setup>계정 생성</a>"
+    "<hr><a href=/setup>Create Account</a>"
     "</body></html>";
 
 static const char PAGE_SETUP[] =
-    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>계정 생성</title>"
+    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>Create Account</title>"
     "<style>body{font-family:sans-serif;max-width:360px;margin:60px auto}"
     "input{width:100%;padding:8px;margin:4px 0;box-sizing:border-box}"
     "button{width:100%;padding:10px;background:#0055aa;color:#fff;border:none;cursor:pointer}"
     ".e{color:red;font-size:.9em}</style></head><body>"
-    "<h2>계정 생성</h2>"
+    "<h2>Create Account</h2>"
     "<form method=post action=/setup>"
-    "생성 PW: <input type=password name=cpass><br>"
+    "Creation PW: <input type=password name=cpass><br>"
     "ID: <input name=user autocomplete=username><br>"
     "PW: <input type=password name=pass autocomplete=new-password><br>"
-    "<button>생성</button>"
+    "<button>Create</button>"
     "</form>"
     "<p class=e>%s</p>"
-    "<a href=/login>로그인으로 돌아가기</a>"
+    "<a href=/login>Back to Login</a>"
     "</body></html>";
 
 static const char PAGE_ACCOUNT[] =
-    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>설정</title>"
+    "<!DOCTYPE html><html><head><meta charset=UTF-8><title>Settings</title>"
     "<style>body{font-family:sans-serif;max-width:400px;margin:60px auto}"
     "input{width:100%;padding:8px;margin:4px 0;box-sizing:border-box}"
     "button{width:100%;padding:10px;background:#0055aa;color:#fff;border:none;cursor:pointer}"
     ".del{background:#cc2200}.e{color:red;font-size:.9em}"
     "ul{padding:0}li{list-style:none;padding:4px 0;border-bottom:1px solid #eee}"
     "</style></head><body>"
-    "<h2>설정 — 계정 관리</h2>"
-    "<h3>현재 계정 (%d/%d)</h3><ul>%s</ul>"
-    "<h3>계정 추가</h3>"
+    "<h2>Settings — Account Management</h2>"
+    "<h3>Accounts (%d/%d)</h3><ul>%s</ul>"
+    "<h3>Add Account</h3>"
     "<form method=post action=/account/add>"
-    "생성 PW: <input type=password name=cpass><br>"
+    "Creation PW: <input type=password name=cpass><br>"
     "ID: <input name=user><br>"
     "PW: <input type=password name=pass><br>"
-    "<button>추가</button>"
+    "<button>Add</button>"
     "</form>"
-    "<h3>계정 삭제</h3>"
+    "<h3>Delete Account</h3>"
     "<form method=post action=/account/del>"
     "ID: <input name=user><br>"
-    "<button class=del>삭제</button>"
+    "<button class=del>Delete</button>"
     "</form>"
     "<p class=e>%s</p>"
-    "<hr><a href=/>보드 제어</a> | <a href=/logout>로그아웃</a>"
+    "<hr><a href=/>Board Control</a> | <a href=/logout>Logout</a>"
     "</body></html>";
 
 /*  -----------------------------------------------------------------------
@@ -312,7 +312,7 @@ static void handle_get_login(wiz_tls_context *ctx, const char *query) {
     char body[sizeof(PAGE_LOGIN) + 64];
     const char *err = "";
     if (query && strstr(query, "err=1")) {
-        err = "아이디 또는 패스워드가 틀렸습니다.";
+        err = "Invalid ID or password.";
     }
     snprintf(body, sizeof(body), PAGE_LOGIN, err);
     send_html(ctx, body, strlen(body));
@@ -337,13 +337,13 @@ static void handle_get_setup(wiz_tls_context *ctx, const char *query) {
     const char *err = "";
     if (query) {
         if (strstr(query, "err=1")) {
-            err = "계정생성 패스워드가 틀렸습니다.";
+            err = "Invalid creation password.";
         } else if (strstr(query, "err=2")) {
-            err = "계정이 이미 5개입니다.";
+            err = "Account limit reached (5).";
         } else if (strstr(query, "err=3")) {
-            err = "이미 존재하는 아이디입니다.";
+            err = "ID already exists.";
         } else if (strstr(query, "err=4")) {
-            err = "아이디 또는 패스워드를 입력하세요.";
+            err = "Enter ID and password.";
         }
     }
     snprintf(body, sizeof(body), PAGE_SETUP, err);
@@ -402,19 +402,19 @@ static void handle_get_account(wiz_tls_context *ctx, const char *session, const 
     const char *err = "";
     if (query) {
         if (strstr(query, "err=1")) {
-            err = "계정생성 패스워드가 틀렸습니다.";
+            err = "Invalid creation password.";
         } else if (strstr(query, "err=2")) {
-            err = "계정이 이미 5개입니다.";
+            err = "Account limit reached (5).";
         } else if (strstr(query, "err=3")) {
-            err = "이미 존재하는 아이디입니다.";
+            err = "ID already exists.";
         } else if (strstr(query, "err=4")) {
-            err = "아이디 또는 패스워드를 입력하세요.";
+            err = "Enter ID and password.";
         } else if (strstr(query, "err=5")) {
-            err = "존재하지 않는 아이디입니다.";
+            err = "ID not found.";
         } else if (strstr(query, "ok=1")) {
-            err = "계정이 추가됐습니다.";
+            err = "Account added.";
         } else if (strstr(query, "ok=2")) {
-            err = "계정이 삭제됐습니다.";
+            err = "Account deleted.";
         }
     }
 
@@ -693,7 +693,17 @@ static void https_close_session(uint8_t sock, wiz_tls_context *ctx, uint8_t *tls
         *tls_active = FALSE;
     }
     if (getSn_SR(sock) != SOCK_CLOSED) {
-        disconnect(sock);
+        /*  블로킹 disconnect() 사용 금지!
+            서버가 먼저 끊는 keep-alive 유휴 종료에서는 피어(브라우저)가
+            FIN에 ACK만 하고 자기 FIN을 보내지 않을 수 있다. 그 경우
+            disconnect()는 FIN_WAIT_2에서 무한 대기 → 워치독(30s) 리셋.
+            DISCON 명령만 보내고 최대 500ms 기다린 뒤 강제 close 한다. */
+        setSn_CR(sock, Sn_CR_DISCON);
+        while (getSn_CR(sock));
+        for (int w = 0; w < 50 && getSn_SR(sock) != SOCK_CLOSED; w++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            device_wdt_reset();
+        }
         close(sock);
     }
 }
